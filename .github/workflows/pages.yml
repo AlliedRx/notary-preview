@@ -19,6 +19,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: unzip -q preview.zip -d site && rm -rf site/__MACOSX
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+      - run: python3 tools/slow_narration.py site/preview/course
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
