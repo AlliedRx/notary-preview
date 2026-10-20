@@ -22,6 +22,17 @@ def dur(p):
     return float(subprocess.run(['ffprobe', '-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', p],
                                 capture_output=True, text=True).stdout)
 
+def hear(audio, **opts):
+    segs, _ = model.transcribe(audio, language='en', word_timestamps=True, beam_size=5, **opts)
+    return [(norm(w.word), w.start, w.end) for s in segs for w in (s.words or []) if norm(w.word)]
+def match(words, heard):
+    sm = difflib.SequenceMatcher(None, words, [h[0] for h in heard], autojunk=False)
+    st, en = [None] * len(words), [None] * len(words)
+    for blk in sm.get_matching_blocks():
+        for j in range(blk.size):
+            st[blk.a + j], en[blk.a + j] = heard[blk.b + j][1], heard[blk.b + j][2]
+    return st, en
+
 for vtt in sorted(glob.glob('assets/narration/*.vtt')):
     mp3 = vtt[:-4] + '.mp3'
     blocks = open(vtt).read().strip().split('\n\n')
@@ -31,24 +42,47 @@ for vtt in sorted(glob.glob('assets/narration/*.vtt')):
         k = next(i for i, l in enumerate(lines) if '-->' in l)
         a, z = [x.strip().split(' ')[0] for x in lines[k].split('-->')]
         cues.append({'pre': lines[:k], 'text': lines[k + 1:], 'a': ts(a), 'z': ts(z)})
-    words, owner = [], []
+    words, owner, raw = [], [], []
     for ci, c in enumerate(cues):
         for w in ' '.join(c['text']).split():
-            words.append(norm(w)); owner.append(ci)
+            words.append(norm(w)); owner.append(ci); raw.append(w)
     script = ' '.join(' '.join(c['text']) for c in cues)
-    segs, _ = model.transcribe(load(mp3), language='en', word_timestamps=True, beam_size=5,
-                               initial_prompt=script[:800], condition_on_previous_text=False)
-    heard = [(norm(w.word), w.start, w.end) for s in segs for w in (s.words or []) if norm(w.word)]
-    sm = difflib.SequenceMatcher(None, words, [h[0] for h in heard], autojunk=False)
+    audio = load(mp3)
+    total = len(audio) / 16000.0
     st, en = [None] * len(words), [None] * len(words)
-    for blk in sm.get_matching_blocks():
-        for j in range(blk.size):
-            st[blk.a + j], en[blk.a + j] = heard[blk.b + j][1], heard[blk.b + j][2]
+    tries = [dict(initial_prompt=script[:800], condition_on_previous_text=False),
+             dict(vad_filter=True, condition_on_previous_text=False),
+             dict(initial_prompt=script[:400], vad_filter=True, chunk_length=15)]
+    best = -1
+    for opts in tries:
+        s1, e1 = match(words, hear(audio, **opts))
+        n = sum(x is not None for x in s1)
+        if n > best:
+            best, st, en = n, s1, e1
+        if n >= 0.97 * len(words):
+            break
+    # second pass: listen again to any stretch of words that was missed
+    i = 0
+    while i < len(words):
+        if st[i] is not None:
+            i += 1; continue
+        j = i
+        while j < len(words) and st[j] is None:
+            j += 1
+        if j - i >= 3:
+            t0 = max(0.0, (en[i - 1] if i > 0 else 0.0) - 0.3)
+            t1 = min(total, (st[j] if j < len(words) else total) + 0.3)
+            if t1 - t0 > 0.5:
+                clip = audio[int(t0 * 16000):int(t1 * 16000)]
+                s2, e2 = match(words[i:j], hear(clip, initial_prompt=' '.join(raw[i:j]), condition_on_previous_text=False))
+                for k in range(j - i):
+                    if s2[k] is not None:
+                        st[i + k], en[i + k] = s2[k] + t0, e2[k] + t0
+        i = j
     matched = sum(x is not None for x in st)
     if not words or matched < 0.6 * len(words):
         print('%s: only %d/%d words matched, kept proportional timing' % (vtt, matched, len(words)))
         continue
-    total = dur(mp3)
     # fill unmatched words by interpolating between matched neighbours
     known = [i for i in range(len(words)) if st[i] is not None]
     for i in range(len(words)):
