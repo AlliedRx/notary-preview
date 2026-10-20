@@ -1,20 +1,18 @@
 """Slow the Module I-1 narration by 10% and make the voice clearer.
 Usage: python3 improve_narration.py <course folder>
-Works on the original-speed files: formant-preserving time stretch, voice EQ,
-gentle compression, loudness normalized to -16 LUFS, 44.1 kHz 128 kbps."""
+Works on the original-speed files: time-domain stretch (no echo), voice EQ,
+a gentle gate to keep pauses clean, and a peak limiter. 44.1 kHz 128 kbps."""
 import glob, os, re, subprocess, sys
 R = 0.9
 os.chdir(sys.argv[1])
 CHAIN = ','.join([
     'aresample=44100:resampler=soxr',
-    'rubberband=tempo=%s:pitch=1:formant=preserved:pitchq=quality:transients=smooth:detector=soft:window=long' % R,
-    'highpass=f=75',
-    'equalizer=f=250:t=q:w=1.0:g=-2.5',
-    'equalizer=f=3200:t=q:w=1.2:g=3',
-    'treble=g=2:f=6500',
-    'acompressor=threshold=-20dB:ratio=2.5:attack=8:release=120:makeup=1',
-    'loudnorm=I=-16:TP=-1.5:LRA=9',
-    'aresample=44100',
+    'atempo=%s' % R,                      # time-domain stretch: no added echo
+    'highpass=f=80',
+    'equalizer=f=250:t=q:w=1.0:g=-2',     # less boom
+    'equalizer=f=3000:t=q:w=1.5:g=2',     # more presence
+    'agate=threshold=0.02:ratio=2:range=0.3:attack=2:knee=3:release=60',  # quieter tails between words
+    'alimiter=limit=0.89:level=false',
 ])
 for f in sorted(glob.glob('assets/narration/*.mp3')):
     tmp = f + '.tmp.mp3'
