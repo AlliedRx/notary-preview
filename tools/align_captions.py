@@ -3,6 +3,7 @@ Usage: python3 align_captions.py <course folder>
 Speech recognition (faster-whisper) gives a time for each spoken word; the
 caption text itself is never changed, only the cue start and end times."""
 import difflib, glob, os, re, subprocess, sys
+import numpy as np
 from faster_whisper import WhisperModel
 os.chdir(sys.argv[1])
 model = WhisperModel('small.en', device='cpu', compute_type='int8')
@@ -13,6 +14,10 @@ def ts(t):
     h, m, s = t.split(':'); return int(h) * 3600 + int(m) * 60 + float(s)
 def fmt(t):
     t = max(0.0, t); return '%02d:%02d:%06.3f' % (t // 3600, t % 3600 // 60, t % 60)
+def load(p):
+    raw = subprocess.run(['ffmpeg', '-v', 'error', '-i', p, '-f', 'f32le', '-ac', '1', '-ar', '16000', '-'],
+                         capture_output=True, check=True).stdout
+    return np.frombuffer(raw, dtype=np.float32).copy()
 def dur(p):
     return float(subprocess.run(['ffprobe', '-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', p],
                                 capture_output=True, text=True).stdout)
@@ -31,7 +36,7 @@ for vtt in sorted(glob.glob('assets/narration/*.vtt')):
         for w in ' '.join(c['text']).split():
             words.append(norm(w)); owner.append(ci)
     script = ' '.join(' '.join(c['text']) for c in cues)
-    segs, _ = model.transcribe(mp3, language='en', word_timestamps=True, beam_size=5,
+    segs, _ = model.transcribe(load(mp3), language='en', word_timestamps=True, beam_size=5,
                                initial_prompt=script[:800], condition_on_previous_text=False)
     heard = [(norm(w.word), w.start, w.end) for s in segs for w in (s.words or []) if norm(w.word)]
     sm = difflib.SequenceMatcher(None, words, [h[0] for h in heard], autojunk=False)
