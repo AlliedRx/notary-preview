@@ -20,7 +20,12 @@ jobs:
       - uses: actions/checkout@v4
       - run: unzip -q preview.zip -d site && rm -rf site/__MACOSX
       - run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -q faster-whisper
       - run: python3 tools/slow_narration.py site/preview/course
+      - run: python3 tools/align_captions.py site/preview/course
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
