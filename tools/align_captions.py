@@ -108,6 +108,29 @@ for vtt in sorted(glob.glob('assets/narration/*.vtt')):
         if idx:
             c['a'] = max(0.0, st[idx[0]] - 0.08)
             c['z'] = min(total, en[idx[-1]] + 0.2)
+    # any caption squeezed into too little time is spread over the gap it belongs in
+    chars = [len(c['text'][0]) + 1 for c in cues]
+    rate = max(0.03, (cues[-1]['z'] - cues[0]['a']) / sum(chars))
+    bad = [(c['z'] - c['a']) < 0.35 * rate * chars[ci] or (ci and c['a'] < cues[ci - 1]['a'])
+           for ci, c in enumerate(cues)]
+    ci = 0
+    while ci < len(cues):
+        if not bad[ci]:
+            ci += 1; continue
+        cj = ci
+        while cj < len(cues) and bad[cj]:
+            cj += 1
+        t0 = cues[ci - 1]['z'] if ci else max(0.0, cues[ci]['a'])
+        t1 = cues[cj]['a'] if cj < len(cues) else total
+        need = rate * sum(chars[ci:cj])
+        if t1 - t0 < 0.5 * need:
+            t1 = min(total, t0 + need)
+        span, acc = t1 - t0, 0
+        for k in range(ci, cj):
+            cues[k]['a'] = t0 + span * acc / sum(chars[ci:cj])
+            acc += chars[k]
+            cues[k]['z'] = t0 + span * acc / sum(chars[ci:cj])
+        ci = cj
     for ci in range(len(cues) - 1):
         nxt = cues[ci + 1]['a']
         if cues[ci]['z'] > nxt or nxt - cues[ci]['z'] < 0.35:
