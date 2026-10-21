@@ -42,8 +42,9 @@ for vtt in sorted(glob.glob('assets/narration/*.vtt')):
         k = next(i for i, l in enumerate(lines) if '-->' in l)
         a, z = [x.strip().split(' ')[0] for x in lines[k].split('-->')]
         cues.append({'pre': lines[:k], 'text': lines[k + 1:], 'a': ts(a), 'z': ts(z)})
-    # one caption per line of text, so every caption reads as a single line
-    cues = [{'pre': [], 'text': [ln.strip()], 'a': c['a'], 'z': c['z']} for c in cues for ln in c['text'] if ln.strip()]
+    # each caption's text joined into one line, so it reads as a single line
+    cues = [{'pre': [], 'text': [' '.join(ln.strip() for ln in c['text'] if ln.strip())], 'a': c['a'], 'z': c['z']}
+            for c in cues]
     words, owner, raw = [], [], []
     for ci, c in enumerate(cues):
         for w in ' '.join(c['text']).split():
