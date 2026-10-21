@@ -42,6 +42,8 @@ for vtt in sorted(glob.glob('assets/narration/*.vtt')):
         k = next(i for i, l in enumerate(lines) if '-->' in l)
         a, z = [x.strip().split(' ')[0] for x in lines[k].split('-->')]
         cues.append({'pre': lines[:k], 'text': lines[k + 1:], 'a': ts(a), 'z': ts(z)})
+    # one caption per line of text, so every caption reads as a single line
+    cues = [{'pre': [], 'text': [ln.strip()], 'a': c['a'], 'z': c['z']} for c in cues for ln in c['text'] if ln.strip()]
     words, owner, raw = [], [], []
     for ci, c in enumerate(cues):
         for w in ' '.join(c['text']).split():
@@ -82,7 +84,12 @@ for vtt in sorted(glob.glob('assets/narration/*.vtt')):
     matched = sum(x is not None for x in st)
     if not words or matched < 0.6 * len(words):
         print('%s: only %d/%d words matched, kept proportional timing' % (vtt, matched, len(words)))
-        continue
+        st = None
+    if st is None:
+        # no reliable recognition: spread the words evenly over the narration
+        st = [None] * len(words); en = [None] * len(words)
+        st[0], en[0] = cues[0]['a'], cues[0]['a'] + 0.3
+        st[-1], en[-1] = cues[-1]['z'] - 0.3, cues[-1]['z']
     # fill unmatched words by interpolating between matched neighbours
     known = [i for i in range(len(words)) if st[i] is not None]
     for i in range(len(words)):
@@ -108,8 +115,11 @@ for vtt in sorted(glob.glob('assets/narration/*.vtt')):
         if cues[ci]['z'] - cues[ci]['a'] < 0.6:
             cues[ci]['z'] = min(nxt, cues[ci]['a'] + 0.6)
     out = [head]
-    for c in cues:
-        out.append('\n'.join(c['pre'] + ['%s --> %s' % (fmt(c['a']), fmt(c['z']))] + c['text']))
+    for n, c in enumerate(cues, 1):
+        out.append('\n'.join([str(n), '%s --> %s' % (fmt(c['a']), fmt(c['z']))] + c['text']))
     open(vtt, 'w').write('\n\n'.join(out) + '\n')
     print('%s: %d/%d words aligned' % (vtt, matched, len(words)))
+# show each caption on one line across the player instead of a narrow column
+css = open('assets/course.css').read()
+open('assets/course.css', 'w').write(css.replace('max-width: 46ch; text-wrap: pretty;', 'max-width: none;'))
 print('captions aligned')
